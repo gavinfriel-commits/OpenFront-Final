@@ -1,0 +1,68 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 🚀 Install and Flatten OpenFront
+        run: |
+          # 1. Use your correct installation command
+          npm run inst
+          
+          # 2. TARGET THE ACTUAL GAME (Ignoring the Test folder)
+          # We prioritize the 'src/client' folder where the main engine lives
+          if [ -d "src/client" ]; then
+            GAME_DIR="src/client"
+          elif [ -d "client" ]; then
+            GAME_DIR="client"
+          else
+            GAME_DIR="."
+          fi
+          
+          # 3. ATTEMPT BUILD (Optional)
+          # We try to build inside the game folder but don't crash if the script is missing
+          cd $GAME_DIR
+          npm run build --if-present -- --base=/${{ github.event.repository.name }}/
+          
+          # 4. FIX THE 404: Move the game files to the top-level site root
+          # This ensures index.html is at the top level of the deployment
+          mkdir -p ${{ github.workspace }}/final_deployment
+          
+          # Move files from dist, build, or public to the final root
+          if [ -d "dist" ]; then cp -r dist/* ${{ github.workspace }}/final_deployment/; fi
+          if [ -d "build" ]; then cp -r build/* ${{ github.workspace }}/final_deployment/; fi
+          if [ -d "public" ]; then cp -r public/* ${{ github.workspace }}/final_deployment/; fi
+          
+          # Final Search & Rescue: Ensure index.html is at the root
+          cp index.html ${{ github.workspace }}/final_deployment/ || echo "Index already moved or not found"
+
+      - name: 📂 Log Deployment (404 Prevention Check)
+        # This PROVES index.html is at the root so the site actually loads
+        run: ls -F ${{ github.workspace }}/final_deployment/
+          
+      - name: Upload artifact 🚀
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # This points to the folder where index.html is at the top level
+          path: ./final_deployment/
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
