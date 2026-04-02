@@ -1,0 +1,50 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install and Build Actual Game 🔧
+        run: |
+          # 1. Install root dependencies [12]
+          npm run inst
+          
+          # 2. Enter the actual game engine folder (src/client) [57]
+          # This ensures we build Openfront and NOT the Pathfinding test
+          cd src/client
+          npm install --legacy-peer-deps
+          
+          # 3. Build the game and fix the "White Screen" pathing [45]
+          npm run build -- --base=/${{ github.event.repository.name }}/ || npm run compile -- --base=/${{ github.event.repository.name }}/
+          
+          # 4. FIX THE INDEX (404): Move the result to a root folder for GitHub
+          # We take everything inside the client's 'dist' and move it to 'site_root'
+          mkdir -p ${{ github.workspace }}/site_root
+          cp -r dist/* ${{ github.workspace }}/site_root/ || cp -r build/* ${{ github.workspace }}/site_root/
+          
+      - name: Upload artifact 🚀
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # This points to the folder where index.html is now at the top level
+          path: ./site_root/
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
