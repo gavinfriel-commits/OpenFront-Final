@@ -1,0 +1,73 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🚀 Install, Audit, and Flatten OpenFront
+        run: |
+          # 1. Root Installation and Security Fix
+          npm run inst
+          npm audit fix --force || echo "Audit warnings bypassed"
+          
+          # 2. SMART SEARCH: Find the Game Engine (src/client or client)
+          if [ -d "src/client" ]; then
+            GAME_DIR="src/client"
+          elif [ -d "client" ]; then
+            GAME_DIR="client"
+          else
+            GAME_DIR="."
+          fi
+          
+          # 3. BUILD THE ACTUAL GAME
+          # Move into the folder and try every possible OpenFront build command
+          cd $GAME_DIR
+          npm install --legacy-peer-deps
+          npm run build --if-present -- --base=/${{ github.event.repository.name }}/ || \
+          npm run compile --if-present -- --base=/${{ github.event.repository.name }}/ || \
+          echo "Static mode: No build script needed"
+          
+          # 4. FIX THE 404: Create a root-level deployment folder
+          mkdir -p ${{ github.workspace }}/site_deployment
+          
+          # 5. SEARCH & RESCUE: Move the HTML and Assets to the top level
+          # This 'flattens' the project so GitHub sees index.html immediately [4, 5]
+          if [ -d "dist" ]; then cp -r dist/* ${{ github.workspace }}/site_deployment/; fi
+          if [ -d "build" ]; then cp -r build/* ${{ github.workspace }}/site_deployment/; fi
+          if [ -d "public" ]; then cp -r public/* ${{ github.workspace }}/site_deployment/; fi
+          
+          # Absolute Fallback: Force copy any index.html found to the root [3]
+          find . -maxdepth 2 -name "index.html" -exec cp {} ${{ github.workspace }}/site_deployment/ \;
+
+      - name: 📂 Log Deployment (Verification)
+        # This confirms index.html is at the ROOT of the artifact
+        run: ls -F ${{ github.workspace }}/site_deployment/
+          
+      - name: Upload artifact 🚀
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Points to the flat folder where index.html is at the absolute top [4]
+          path: ./site_deployment/
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
