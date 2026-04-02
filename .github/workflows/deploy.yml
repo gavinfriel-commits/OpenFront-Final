@@ -1,0 +1,85 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🚀 Secure, Purge, and Link Engine
+        run: |
+          # 1. Root Security & Install [1, 2]
+          npm run inst
+          npm audit fix --force || echo "Security patched"
+          
+          # 2. THE TOTAL PURGE [3, 4]
+          rm -rf src/client/playground/
+          rm -rf tests/
+          rm -f index.html
+          
+          # 3. BUILD THE ACTUAL ENGINE (src/client) [5, 19]
+          cd src/client
+          npm install --legacy-peer-deps
+          # We force the base path to your repository name for GitHub Pages [37]
+          npm run build -- --base=/${{ github.event.repository.name }}/
+          
+          # 4. CREATE DEPLOYMENT ROOT
+          mkdir -p ${{ github.workspace }}/final_site
+          
+          # 5. MOVE COMPILED ASSETS [11, 20]
+          # We take everything (js, css, images) from the dist folder
+          if [ -d "dist" ]; then cp -r dist/* ${{ github.workspace }}/final_site/; fi
+          
+          # 6. SMART LINKER: Find the real JS file (The Black Screen Fix)
+          # We look for the main JS bundle, even if it has a random name [6]
+          REAL_JS=$(find ${{ github.workspace }}/final_site -name "*.js" | head -n 1 | xargs basename)
+          echo "Detected Engine Entry: $REAL_JS"
+          
+          # 7. INJECT UPDATED BOOTLOADER [45]
+          # This writes the HTML but uses the REAL file name found in Step 6
+          cat <<EOF > ${{ github.workspace }}/final_site/index.html
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>OpenFront Game Engine</title>
+            <style>
+              body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; }
+              #app { width: 100%; height: 100%; }
+            </style>
+          </head>
+          <body>
+            <div id="app"></div>
+            <script type="module" src="./$REAL_JS"></script>
+          </body>
+          </html>
+          EOF
+
+      - name: 📂 Log Deployment (Final Verification)
+        run: ls -R ${{ github.workspace }}/final_site/
+          
+      - name: Upload artifact 🚀
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./final_site/
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
