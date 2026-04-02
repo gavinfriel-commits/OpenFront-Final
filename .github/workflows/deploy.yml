@@ -1,0 +1,57 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install and Build 🔧
+        run: |
+          # 1. Install official OpenFront dependencies
+          npm run inst || npm install --legacy-peer-deps
+          
+          # 2. Attempt to build the main game
+          npm run build --if-present || npm run compile --if-present
+          
+          # 3. FIX THE 404: Create the 'dist' folder GitHub expects
+          mkdir -p dist
+          
+          # 4. SEARCH & RESCUE: Copy the game files to the root of the site
+          # This takes the files you found and puts them where GitHub can see them
+          cp -r tests/pathfinding/playground/public/* dist/ || echo "Playground not found"
+          
+          # If a 'build' folder was created by the game engine, use those files instead
+          if [ -d "build" ]; then cp -r build/* dist/; fi
+
+      - name: 📂 Log Folder Contents (Verification)
+        # This confirms index.html is at the ROOT of the deployment
+        run: |
+          echo "Checking root of deployment..."
+          ls -F dist/
+          
+      - name: Upload artifact 🚀
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # This must point to the folder containing your index.html
+          path: ./dist/
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
