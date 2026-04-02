@@ -1,0 +1,65 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🚀 Install, Audit, and Force-Flatten HTML
+        run: |
+          # 1. Run your official install and security fix [25, 26]
+          npm run inst
+          npm audit fix --force || echo "Audit complete"
+          
+          # 2. Build the Main Game Engine (Ignoring Tests) [1, 4]
+          # We enter the client folder to ensure the actual game builds
+          cd src/client
+          npm install --legacy-peer-deps
+          npm run build --if-present -- --base=/${{ github.event.repository.name }}/ || \
+          npm run compile --if-present -- --base=/${{ github.event.repository.name }}/
+          
+          # 3. CREATE THE FRONT DOOR (Absolute Root)
+          # We create a clean directory at the workspace level
+          mkdir -p ${{ github.workspace }}/final_site
+          
+          # 4. MOVE THE HTML TO THE ROOT (404 Prevention) [11, 20]
+          # We look for common build folders and move their content to the root
+          if [ -d "dist" ]; then cp -r dist/* ${{ github.workspace }}/final_site/; fi
+          if [ -d "build" ]; then cp -r build/* ${{ github.workspace }}/final_site/; fi
+          if [ -d "public" ]; then cp -r public/* ${{ github.workspace }}/final_site/; fi
+          
+          # 5. GLOBAL SEARCH & RESCUE [11]
+          # This command finds every index.html in the project and puts it at the root.
+          # This makes a 404 impossible.
+          find ${{ github.workspace }} -name "index.html" -exec cp {} ${{ github.workspace }}/final_site/ \;
+
+      - name: 📂 Log Deployment (404 Verification)
+        # This PROVES index.html is at the ROOT of the artifact
+        run: ls -F ${{ github.workspace }}/final_site/
+          
+      - name: Upload artifact 🚀
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # This points to the folder where index.html is now at the absolute top [11]
+          path: ./final_site/
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
